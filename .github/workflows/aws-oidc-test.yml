@@ -12,12 +12,24 @@ jobs:
     runs-on: ubuntu-latest
 
     steps:
+      - name: Get OIDC token
+        id: oidc
+        run: |
+          TOKEN=$(curl -s \
+            -H "Authorization: bearer $ACTIONS_ID_TOKEN_REQUEST_TOKEN" \
+            "$ACTIONS_ID_TOKEN_REQUEST_URL&audience=sts.amazonaws.com" \
+            | python3 -c "import sys,json; print(json.load(sys.stdin)['value'])")
+
+          echo "OIDC token claims:"
+          echo "$TOKEN" | cut -d '.' -f2 | base64 -d 2>/dev/null | jq .
+
       - name: Configure AWS credentials
         uses: aws-actions/configure-aws-credentials@v6
         with:
           role-to-assume: ${{ secrets.AWS_GITHUB_ROLE_ARN }}
           role-session-name: GitHubActions
           aws-region: us-east-1
+          audience: sts.amazonaws.com
 
       - name: Verify AWS identity
         run: |
