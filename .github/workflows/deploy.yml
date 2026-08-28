@@ -13,17 +13,17 @@ permissions:
 
 env:
   AWS_REGION: us-east-1
-  ECR_REPOSITORY: casestudy-app
+  ECR_REPOSITORY: my-nginx
   IMAGE_TAG: latest
 
 jobs:
 
-  terraform:
-    name: Create AWS Infrastructure
+ 
+  infrastructure:
+    name: Create Infrastructure
     runs-on: ubuntu-latest
 
     steps:
-
       - name: Checkout
         uses: actions/checkout@v4
 
@@ -46,19 +46,19 @@ jobs:
         working-directory: terraform
         run: terraform validate
 
-      - name: Terraform Apply
+      - name: Create Infrastructure
         working-directory: terraform
-        run: terraform apply -auto-approve
+        run: terraform apply -auto-approve -var="deploy_app_runner=false"
 
 
+ 
   push-nginx:
     name: Push NGINX to ECR
     runs-on: ubuntu-latest
 
-    needs: terraform
+    needs: infrastructure
 
     steps:
-
       - name: Configure AWS credentials
         uses: aws-actions/configure-aws-credentials@v6
         with:
@@ -72,24 +72,20 @@ jobs:
         uses: aws-actions/amazon-ecr-login@v2
 
       - name: Pull NGINX
-        run: |
-          docker pull nginx:latest
+        run: docker pull nginx:latest
 
       - name: Tag NGINX
         env:
           ECR_REGISTRY: ${{ steps.login-ecr.outputs.registry }}
-        run: |
-          docker tag nginx:latest \
-            $ECR_REGISTRY/$ECR_REPOSITORY:$IMAGE_TAG
+        run: docker tag nginx:latest $ECR_REGISTRY/$ECR_REPOSITORY:$IMAGE_TAG
 
       - name: Push NGINX
         env:
           ECR_REGISTRY: ${{ steps.login-ecr.outputs.registry }}
-        run: |
-          docker push \
-            $ECR_REGISTRY/$ECR_REPOSITORY:$IMAGE_TAG
+        run: docker push $ECR_REGISTRY/$ECR_REPOSITORY:$IMAGE_TAG
 
 
+  
   deploy:
     name: Deploy App Runner
     runs-on: ubuntu-latest
@@ -97,7 +93,6 @@ jobs:
     needs: push-nginx
 
     steps:
-
       - name: Checkout
         uses: actions/checkout@v4
 
@@ -116,6 +111,15 @@ jobs:
         working-directory: terraform
         run: terraform init
 
-      - name: Terraform Apply
+      - name: Deploy App Runner
         working-directory: terraform
-        run: terraform apply -auto-approve
+        run: terraform apply -auto-approve -var="deploy_app_runner=true" -var="image_tag=$IMAGE_TAG"
+
+
+      - name: Get App Runner URL
+        working-directory: terraform
+        run: |
+          echo "======================================"
+          echo "NGINX App Runner URL:"
+          terraform output -raw apprunner_service_url
+          echo "======================================"

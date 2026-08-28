@@ -22,9 +22,7 @@ resource "aws_iam_role" "apprunner_ecr_access" {
   }
 }
 
-
 resource "aws_iam_role_policy_attachment" "apprunner_ecr_access" {
-  role = aws_iam_role.apprunner_ecr_access.name
-
+  role       = aws_iam_role.apprunner_ecr_access.name
   policy_arn = "arn:aws:iam::aws:policy/service-role/AWSAppRunnerServicePolicyForECRAccess"
 }
