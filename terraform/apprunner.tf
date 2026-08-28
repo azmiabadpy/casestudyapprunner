@@ -1,4 +1,6 @@
 resource "aws_apprunner_service" "nginx" {
+  count = var.deploy_app_runner ? 1 : 0
+
   service_name = var.app_runner_service_name
 
   source_configuration {
@@ -23,20 +25,4 @@ resource "aws_apprunner_service" "nginx" {
     cpu    = "1 vCPU"
     memory = "2 GB"
   }
-
-  health_check_configuration {
-    protocol            = "TCP"
-    interval            = 10
-    timeout             = 5
-    healthy_threshold   = 1
-    unhealthy_threshold = 5
-  }
-
-  tags = {
-    Name = "nginx-app-runner"
-  }
-
-  depends_on = [
-    aws_iam_role_policy_attachment.apprunner_ecr_access
-  ]
 }

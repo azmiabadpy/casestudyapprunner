@@ -21,3 +21,9 @@ variable "image_tag" {
   type        = string
   default     = "latest"
 }
+
+variable "deploy_app_runner" {
+  description = "Whether to deploy the App Runner service"
+  type        = bool
+  default     = false
+}
