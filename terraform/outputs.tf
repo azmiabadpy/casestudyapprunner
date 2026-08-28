@@ -10,10 +10,10 @@ output "ecr_repository_arn" {
 
 output "apprunner_service_url" {
   description = "App Runner service URL"
-  value       = aws_apprunner_service.nginx.service_url
+  value       = var.deploy_app_runner ? aws_apprunner_service.nginx[0].service_url : null
 }
 
 output "apprunner_service_arn" {
   description = "App Runner service ARN"
-  value       = aws_apprunner_service.nginx.arn
+  value       = var.deploy_app_runner ? aws_apprunner_service.nginx[0].arn : null
 }
