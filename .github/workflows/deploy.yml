@@ -18,7 +18,9 @@ env:
 
 jobs:
 
-  # =================================================
+  # ============================================================
+  # 1. CREATE INFRASTRUCTURE
+  # ============================================================
 
   infrastructure:
     name: Create Infrastructure
@@ -102,14 +104,14 @@ jobs:
           ECR_REGISTRY: ${{ steps.login-ecr.outputs.registry }}
         run: |
           docker tag nginx:latest \
-            $ECR_REGISTRY/$ECR_REPOSITORY:$IMAGE_TAG
+            "$ECR_REGISTRY/$ECR_REPOSITORY:$IMAGE_TAG"
 
       - name: Push NGINX
         env:
           ECR_REGISTRY: ${{ steps.login-ecr.outputs.registry }}
         run: |
           docker push \
-            $ECR_REGISTRY/$ECR_REPOSITORY:$IMAGE_TAG
+            "$ECR_REGISTRY/$ECR_REPOSITORY:$IMAGE_TAG"
 
 
   # ============================================================
@@ -137,6 +139,9 @@ jobs:
           role-to-assume: ${{ secrets.AWS_GITHUB_ROLE_ARN }}
           role-session-name: GitHubActions
           aws-region: ${{ env.AWS_REGION }}
+
+      - name: Setup Terraform
+        uses: hashicorp/setup-terraform@v3
 
       - name: Get Network Information
         id: network
@@ -195,7 +200,7 @@ jobs:
         env:
           NAT_GATEWAY_ID: ${{ steps.nat.outputs.nat_gateway_id }}
         run: |
-          echo "Waiting for NAT Gateway to become available..."
+          echo "Waiting for NAT Gateway..."
 
           aws ec2 wait nat-gateway-available \
             --nat-gateway-ids "$NAT_GATEWAY_ID" \
@@ -218,7 +223,7 @@ jobs:
             --nat-gateway-id "$NAT_GATEWAY_ID" \
             --region "$AWS_REGION"
 
-          echo "Private subnet now has temporary Internet access."
+          echo "Temporary Internet access enabled."
 
 
   # ============================================================
@@ -260,12 +265,12 @@ jobs:
         run: |
           INSTANCE_ID=$(terraform output -raw ec2_instance_id)
 
-          echo "EC2 Instance ID: $INSTANCE_ID"
+          echo "Private EC2 Instance: $INSTANCE_ID"
 
           echo "instance_id=$INSTANCE_ID" >> "$GITHUB_OUTPUT"
 
       # --------------------------------------------------------
-      # Install AWS CLI and Docker
+      # Install AWS CLI + Docker
       # --------------------------------------------------------
 
       - name: Install AWS CLI and Docker using SSM
@@ -279,23 +284,26 @@ jobs:
             --comment "Install AWS CLI and Docker on private EC2" \
             --parameters 'commands=[
               "set -e",
-              "echo Checking operating system",
+              "echo ===== Operating System =====",
               "cat /etc/os-release",
-              "echo Updating Ubuntu packages",
+              "echo ===== Updating packages =====",
               "sudo apt-get update -y",
-              "echo Installing AWS CLI and Docker",
-              "sudo DEBIAN_FRONTEND=noninteractive apt-get install -y awscli docker.io",
-              "echo Enabling Docker",
+              "echo ===== Installing AWS CLI =====",
+              "sudo DEBIAN_FRONTEND=noninteractive apt-get install -y awscli",
+              "echo ===== Installing Docker =====",
+              "sudo DEBIAN_FRONTEND=noninteractive apt-get install -y docker.io",
+              "echo ===== Enabling Docker =====",
               "sudo systemctl enable docker",
-              "echo Starting Docker",
+              "echo ===== Starting Docker =====",
               "sudo systemctl start docker",
-              "echo AWS CLI version",
+              "echo ===== AWS CLI =====",
               "aws --version",
-              "echo Docker version",
+              "echo ===== Docker =====",
               "sudo docker --version",
-              "echo Docker service status",
+              "echo ===== Docker Service =====",
               "sudo systemctl is-active docker"
             ]' \
+            --region "$AWS_REGION" \
             --query "Command.CommandId" \
             --output text)
 
@@ -303,11 +311,13 @@ jobs:
 
           aws ssm wait command-executed \
             --command-id "$COMMAND_ID" \
-            --instance-id "$INSTANCE_ID"
+            --instance-id "$INSTANCE_ID" \
+            --region "$AWS_REGION"
 
           aws ssm get-command-invocation \
             --command-id "$COMMAND_ID" \
-            --instance-id "$INSTANCE_ID"
+            --instance-id "$INSTANCE_ID" \
+            --region "$AWS_REGION"
 
       # --------------------------------------------------------
       # Verify installation
@@ -327,6 +337,7 @@ jobs:
               "sudo docker --version",
               "sudo systemctl is-active docker"
             ]' \
+            --region "$AWS_REGION" \
             --query "Command.CommandId" \
             --output text)
 
@@ -334,11 +345,13 @@ jobs:
 
           aws ssm wait command-executed \
             --command-id "$COMMAND_ID" \
-            --instance-id "$INSTANCE_ID"
+            --instance-id "$INSTANCE_ID" \
+            --region "$AWS_REGION"
 
           aws ssm get-command-invocation \
             --command-id "$COMMAND_ID" \
-            --instance-id "$INSTANCE_ID"
+            --instance-id "$INSTANCE_ID" \
+            --region "$AWS_REGION"
 
 
   # ============================================================
@@ -492,7 +505,7 @@ jobs:
         run: |
           INSTANCE_ID=$(terraform output -raw ec2_instance_id)
 
-          echo "EC2 Instance ID: $INSTANCE_ID"
+          echo "Private EC2: $INSTANCE_ID"
 
           echo "instance_id=$INSTANCE_ID" >> "$GITHUB_OUTPUT"
 
@@ -506,7 +519,7 @@ jobs:
         run: |
           ECR_URL=$(terraform output -raw ecr_repository_url)
 
-          echo "ECR Repository URL: $ECR_URL"
+          echo "ECR Repository: $ECR_URL"
 
           echo "repository_url=$ECR_URL" >> "$GITHUB_OUTPUT"
 
@@ -529,20 +542,8 @@ jobs:
             --instance-ids "$INSTANCE_ID" \
             --document-name "AWS-RunShellScript" \
             --comment "Deploy NGINX from private ECR" \
-            --parameters "commands=[
-              \"set -e\",
-              \"echo Logging into ECR\",
-              \"aws ecr get-login-password --region $AWS_REGION | sudo docker login --username AWS --password-stdin $ECR_REGISTRY\",
-              \"echo Pulling NGINX image\",
-              \"sudo docker pull $ECR_URL:$IMAGE_TAG\",
-              \"echo Removing previous NGINX container if present\",
-              \"sudo docker stop nginx || true\",
-              \"sudo docker rm nginx || true\",
-              \"echo Starting NGINX container\",
-              \"sudo docker run -d --name nginx -p 80:80 $ECR_URL:$IMAGE_TAG\",
-              \"echo NGINX container started\",
-              \"sudo docker ps --filter name=nginx\"
-            ]" \
+            --parameters "commands=[\"set -e\",\"echo Logging into ECR\",\"aws ecr get-login-password --region $AWS_REGION | sudo docker login --username AWS --password-stdin $ECR_REGISTRY\",\"echo Pulling NGINX image\",\"sudo docker pull $ECR_URL:$IMAGE_TAG\",\"echo Removing old container\",\"sudo docker stop nginx || true\",\"sudo docker rm nginx || true\",\"echo Starting NGINX\",\"sudo docker run -d --name nginx -p 80:80 $ECR_URL:$IMAGE_TAG\",\"echo NGINX started\",\"sudo docker ps --filter name=nginx\"]" \
+            --region "$AWS_REGION" \
             --query "Command.CommandId" \
             --output text)
 
@@ -550,11 +551,13 @@ jobs:
 
           aws ssm wait command-executed \
             --command-id "$COMMAND_ID" \
-            --instance-id "$INSTANCE_ID"
+            --instance-id "$INSTANCE_ID" \
+            --region "$AWS_REGION"
 
           aws ssm get-command-invocation \
             --command-id "$COMMAND_ID" \
-            --instance-id "$INSTANCE_ID"
+            --instance-id "$INSTANCE_ID" \
+            --region "$AWS_REGION"
 
       # --------------------------------------------------------
       # Verify NGINX
@@ -570,10 +573,12 @@ jobs:
             --document-name "AWS-RunShellScript" \
             --comment "Verify NGINX container" \
             --parameters 'commands=[
+              "set -e",
               "sudo docker ps --filter name=nginx",
               "sudo docker inspect nginx --format \"{{.State.Status}}\"",
               "curl -I http://localhost:80"
             ]' \
+            --region "$AWS_REGION" \
             --query "Command.CommandId" \
             --output text)
 
@@ -581,11 +586,13 @@ jobs:
 
           aws ssm wait command-executed \
             --command-id "$COMMAND_ID" \
-            --instance-id "$INSTANCE_ID"
+            --instance-id "$INSTANCE_ID" \
+            --region "$AWS_REGION"
 
           aws ssm get-command-invocation \
             --command-id "$COMMAND_ID" \
-            --instance-id "$INSTANCE_ID"
+            --instance-id "$INSTANCE_ID" \
+            --region "$AWS_REGION"
 
       # --------------------------------------------------------
       # Get ALB URL
@@ -595,6 +602,7 @@ jobs:
         id: alb
         working-directory: terraform
         run: |
+
           ALB_URL=$(terraform output -raw alb_url)
 
           echo "ALB URL: $ALB_URL"
@@ -602,7 +610,7 @@ jobs:
           echo "alb_url=$ALB_URL" >> "$GITHUB_OUTPUT"
 
       # --------------------------------------------------------
-      # Complete
+      # Final output
       # --------------------------------------------------------
 
       - name: Deployment complete
@@ -610,16 +618,26 @@ jobs:
           INSTANCE_ID: ${{ steps.ec2.outputs.instance_id }}
           ALB_URL: ${{ steps.alb.outputs.alb_url }}
         run: |
+
           echo ""
-          echo "=========================================="
-          echo "       NGINX DEPLOYMENT COMPLETED"
-          echo "=========================================="
+          echo "======================================================"
+          echo "           NGINX DEPLOYMENT COMPLETED"
+          echo "======================================================"
           echo ""
-          echo "Private EC2: $INSTANCE_ID"
-          echo "NAT Gateway: Removed"
+          echo "Private EC2:"
+          echo "$INSTANCE_ID"
           echo ""
-          echo "Access NGINX using the ALB:"
+          echo "NAT Gateway:"
+          echo "Removed"
+          echo ""
+          echo "Private EC2:"
+          echo "Back to private-only networking"
+          echo ""
+          echo "======================================================"
+          echo "              ACCESS NGINX HERE"
+          echo "======================================================"
+          echo ""
           echo "$ALB_URL"
           echo ""
-          echo "=========================================="
+          echo "======================================================"
 ```
