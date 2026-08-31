@@ -21,10 +21,6 @@ jobs:
     name: Create Infrastructure
     runs-on: ubuntu-latest
 
-    outputs:
-      public_subnet_id: ${{ steps.outputs.outputs.public_subnet_id }}
-      private_route_table_id: ${{ steps.outputs.outputs.private_route_table_id }}
-
     steps:
       - name: Checkout
         uses: actions/checkout@v4
@@ -55,20 +51,11 @@ jobs:
         working-directory: terraform
         run: terraform apply -auto-approve
 
-      - name: Get Terraform Outputs
-        id: outputs
-        working-directory: terraform
-        run: |
-          echo "public_subnet_id=$(terraform output -raw public_subnet_id)" >> "$GITHUB_OUTPUT"
-          echo "private_route_table_id=$(terraform output -raw private_route_table_id)" >> "$GITHUB_OUTPUT"
-
 
   push-nginx:
     name: Push NGINX to ECR
     runs-on: ubuntu-latest
-
-    needs:
-      - infrastructure
+    needs: infrastructure
 
     steps:
       - name: Configure AWS credentials
@@ -94,15 +81,17 @@ jobs:
   temporary-nat:
     name: Create Temporary NAT
     runs-on: ubuntu-latest
-
-    needs:
-      - infrastructure
+    needs: infrastructure
 
     outputs:
       nat_gateway_id: ${{ steps.nat.outputs.nat_gateway_id }}
       allocation_id: ${{ steps.eip.outputs.allocation_id }}
+      private_route_table_id: ${{ steps.network.outputs.private_route_table_id }}
 
     steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
       - name: Configure AWS credentials
         uses: aws-actions/configure-aws-credentials@v6
         with:
@@ -170,14 +159,15 @@ jobs:
   install-docker:
     name: Install AWS CLI and Docker
     runs-on: ubuntu-latest
-
-    needs:
-      - temporary-nat
+    needs: temporary-nat
 
     outputs:
       instance_id: ${{ steps.ec2.outputs.instance_id }}
 
     steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
       - name: Configure AWS credentials
         uses: aws-actions/configure-aws-credentials@v6
         with:
@@ -266,19 +256,27 @@ jobs:
           INSTANCE_ID: ${{ steps.resources.outputs.instance_id }}
           ECR_URL: ${{ steps.resources.outputs.ecr_url }}
         run: |
-          ECR_REGISTRY=$(echo "$ECR_URL" | cut -d/ -f1)
+          ECR_REGISTRY="${ECR_URL%%/*}"
+
+          COMMANDS=$(jq -nc \
+            --arg region "$AWS_REGION" \
+            --arg registry "$ECR_REGISTRY" \
+            --arg image "$ECR_URL:$IMAGE_TAG" \
+            '{
+              commands: [
+                "set -e",
+                ("aws ecr get-login-password --region " + $region + " | sudo docker login --username AWS --password-stdin " + $registry),
+                ("sudo docker pull " + $image),
+                "sudo docker stop nginx || true",
+                "sudo docker rm nginx || true",
+                ("sudo docker run -d --name nginx -p 80:80 " + $image)
+              ]
+            }')
 
           COMMAND_ID=$(aws ssm send-command \
             --instance-ids "$INSTANCE_ID" \
             --document-name "AWS-RunShellScript" \
-            --parameters "commands=[
-              \"set -e\",
-              \"aws ecr get-login-password --region $AWS_REGION | sudo docker login --username AWS --password-stdin $ECR_REGISTRY\",
-              \"sudo docker pull $ECR_URL:$IMAGE_TAG\",
-              \"sudo docker stop nginx || true\",
-              \"sudo docker rm nginx || true\",
-              \"sudo docker run -d --name nginx -p 80:80 $ECR_URL:$IMAGE_TAG\"
-            ]" \
+            --parameters "$COMMANDS" \
             --region "$AWS_REGION" \
             --query "Command.CommandId" \
             --output text)
@@ -301,14 +299,18 @@ jobs:
         env:
           INSTANCE_ID: ${{ steps.resources.outputs.instance_id }}
         run: |
-          COMMAND_ID=$(aws ssm send-command \
-            --instance-ids "$INSTANCE_ID" \
-            --document-name "AWS-RunShellScript" \
-            --parameters 'commands=[
+          COMMANDS=$(jq -nc '{
+            commands: [
               "set -e",
               "test \"$(sudo docker inspect nginx --format \"{{.State.Status}}\")\" = \"running\"",
               "curl -f http://localhost:80"
-            ]' \
+            ]
+          }')
+
+          COMMAND_ID=$(aws ssm send-command \
+            --instance-ids "$INSTANCE_ID" \
+            --document-name "AWS-RunShellScript" \
+            --parameters "$COMMANDS" \
             --region "$AWS_REGION" \
             --query "Command.CommandId" \
             --output text)
@@ -331,14 +333,14 @@ jobs:
         id: alb
         working-directory: terraform
         run: |
-          ALB_URL=$(terraform output -raw alb_url)
-          echo "alb_url=$ALB_URL" >> "$GITHUB_OUTPUT"
+          echo "alb_url=$(terraform output -raw alb_url)" >> "$GITHUB_OUTPUT"
 
-      - name: Show ALB URL
+      - name: Publish ALB URL
         env:
           ALB_URL: ${{ steps.alb.outputs.alb_url }}
         run: |
-          echo "NGINX URL: $ALB_URL"
+          echo "## NGINX Deployment" >> "$GITHUB_STEP_SUMMARY"
+          echo "" >> "$GITHUB_STEP_SUMMARY"
           echo "NGINX URL: $ALB_URL" >> "$GITHUB_STEP_SUMMARY"
 
 
@@ -360,24 +362,16 @@ jobs:
           role-session-name: GitHubActions
           aws-region: ${{ env.AWS_REGION }}
 
-      - name: Setup Terraform
-        uses: hashicorp/setup-terraform@v3
-
-      - name: Get Route Table
-        id: network
-        working-directory: terraform
-        run: |
-          terraform init
-          echo "private_route_table_id=$(terraform output -raw private_route_table_id)" >> "$GITHUB_OUTPUT"
-
       - name: Remove NAT Route
         env:
-          PRIVATE_ROUTE_TABLE_ID: ${{ steps.network.outputs.private_route_table_id }}
+          PRIVATE_ROUTE_TABLE_ID: ${{ needs.temporary-nat.outputs.private_route_table_id }}
         run: |
-          aws ec2 delete-route \
-            --route-table-id "$PRIVATE_ROUTE_TABLE_ID" \
-            --destination-cidr-block 0.0.0.0/0 \
-            --region "$AWS_REGION" || true
+          if [ -n "$PRIVATE_ROUTE_TABLE_ID" ]; then
+            aws ec2 delete-route \
+              --route-table-id "$PRIVATE_ROUTE_TABLE_ID" \
+              --destination-cidr-block 0.0.0.0/0 \
+              --region "$AWS_REGION" || true
+          fi
 
       - name: Delete NAT Gateway
         env:
