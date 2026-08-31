@@ -13,6 +13,11 @@ output "vpc_id" {
   value       = aws_vpc.main.id
 }
 
+output "public_subnet_id" {
+  description = "Public subnet ID used for temporary NAT Gateway"
+  value       = aws_subnet.public_1.id
+}
+
 output "private_subnet_id" {
   description = "Private subnet ID"
   value       = aws_subnet.private.id
@@ -29,7 +34,7 @@ output "ec2_instance_id" {
 }
 
 output "ec2_private_ip" {
-  description = "Private EC2 private IP address"
+  description = "EC2 private IP address"
   value       = aws_instance.nginx.private_ip
 }
 
