@@ -286,8 +286,8 @@ jobs:
             --document-name "AWS-RunShellScript" \
             --comment "Install Docker on private EC2" \
             --parameters 'commands=[
-              "sudo apt-get update",
-              "sudo DEBIAN_FRONTEND=noninteractive apt-get install -y docker.io",
+              "sudo apt update",
+              "sudo DEBIAN_FRONTEND=noninteractive apt install -y docker.io",
               "sudo systemctl enable docker",
               "sudo systemctl start docker",
               "sudo docker --version"
