@@ -33,7 +33,7 @@ resource "aws_vpc_security_group_ingress_rule" "ec2_from_alb" {
   ip_protocol = "tcp"
 }
 
--
+
 resource "aws_lb" "nginx" {
   name               = "nginx-alb"
   internal           = false
