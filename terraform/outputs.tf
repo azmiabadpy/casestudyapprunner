@@ -67,3 +67,33 @@ output "ec2messages_endpoint_id" {
   description = "EC2 Messages VPC endpoint ID"
   value       = aws_vpc_endpoint.ec2messages.id
 }
+
+
+# -------------------------
+# Application Load Balancer
+# -------------------------
+
+output "alb_dns_name" {
+  description = "Application Load Balancer DNS name"
+  value       = aws_lb.nginx.dns_name
+}
+
+output "alb_url" {
+  description = "URL to access NGINX through the Application Load Balancer"
+  value       = "http://${aws_lb.nginx.dns_name}"
+}
+
+output "alb_arn" {
+  description = "Application Load Balancer ARN"
+  value       = aws_lb.nginx.arn
+}
+
+
+# -------------------------
+# Target Group
+# -------------------------
+
+output "target_group_arn" {
+  description = "NGINX target group ARN"
+  value       = aws_lb_target_group.nginx.arn
+}
