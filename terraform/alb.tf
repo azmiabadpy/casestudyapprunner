@@ -1,10 +1,8 @@
-
 resource "aws_security_group" "alb" {
   name        = "nginx-alb-sg"
   description = "Security group for Nginx ALB"
   vpc_id      = aws_vpc.main.id
 
-  
   ingress {
     description = "HTTP from Internet"
     from_port   = 80
@@ -23,6 +21,8 @@ resource "aws_security_group" "alb" {
   tags = {
     Name = "nginx-alb-sg"
   }
+}
+
 
 resource "aws_vpc_security_group_ingress_rule" "ec2_from_alb" {
   security_group_id            = aws_security_group.nginx_ec2.id
@@ -51,6 +51,8 @@ resource "aws_lb" "nginx" {
   tags = {
     Name = "nginx-alb"
   }
+}
+
 
 resource "aws_lb_target_group" "nginx" {
   name     = "nginx-target-group"
@@ -74,7 +76,6 @@ resource "aws_lb_target_group" "nginx" {
 }
 
 
- 
 resource "aws_lb_target_group_attachment" "nginx" {
   target_group_arn = aws_lb_target_group.nginx.arn
 
@@ -82,6 +83,8 @@ resource "aws_lb_target_group_attachment" "nginx" {
 
   port = 80
 }
+
+
 resource "aws_lb_listener" "nginx" {
   load_balancer_arn = aws_lb.nginx.arn
 
@@ -94,6 +97,8 @@ resource "aws_lb_listener" "nginx" {
     target_group_arn = aws_lb_target_group.nginx.arn
   }
 }
+
+
 output "nginx_alb_url" {
   description = "URL to access Nginx through the ALB"
 
