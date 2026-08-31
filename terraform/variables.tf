@@ -31,7 +31,7 @@ variable "instance_type" {
 variable "ami_id" {
   description = "AMI ID for the EC2 instance"
   type        = string
-  default     = "ami-0c101f26f147fa7fd"
+  default     = "ami-01a00762f46d584a1"
 }
 
 variable "ecr_repository_name" {
